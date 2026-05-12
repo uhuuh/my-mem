@@ -41,8 +41,8 @@ dump_graph(y, x, format=['json', 'png'], show_memory=True)
 - Saved tensors metadata per node (shapes, dtypes, sizes)
 
 **Memory reporting (when `show_memory=True`):**
-- **Summary**: Total saved tensor memory across entire subgraph
-- **Detailed**: Per-node breakdown showing each saved tensor's name, shape, dtype, size in bytes with thousand separators
+- **Summary**: Total saved tensor memory across entire subgraph (both formatted string with thousand separators and raw numeric value)
+- **Detailed**: Per-node breakdown showing each saved tensor's name, shape, dtype, size with both formatted string and raw numeric value
 
 **Graph structure:**
 - Directed acyclic graph (DAG) representation
@@ -58,6 +58,7 @@ dump_graph(y, x, format=['json', 'png'], show_memory=True)
 {
   "summary": {
     "total_saved_memory": "129,400,000",
+    "total_saved_memory_bytes": 129400000,
     "num_nodes": 3
   },
   "nodes": [
@@ -66,10 +67,11 @@ dump_graph(y, x, format=['json', 'png'], show_memory=True)
       "op_type": "AddmmBackward",
       "output_shape": [100, 50],
       "saved_tensors": [
-        {"name": "mat1", "shape": [100, 200], "dtype": "float32", "size": "80,000,000"},
-        {"name": "bias", "shape": [50], "dtype": "float32", "size": "200"}
+        {"name": "mat1", "shape": [100, 200], "dtype": "float32", "size": "80,000,000", "size_bytes": 80000000},
+        {"name": "bias", "shape": [50], "dtype": "float32", "size": "200", "size_bytes": 200}
       ],
-      "saved_memory": "80,000,200"
+      "saved_memory": "80,000,200",
+      "saved_memory_bytes": 80000200
     }
   ],
   "edges": [
