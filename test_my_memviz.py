@@ -1,7 +1,7 @@
 import pytest
 import torch
 import json
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot
 
 
 def test_format_bytes_zero():
@@ -197,3 +197,36 @@ def test_format_json_no_memory():
     assert data["summary"]["num_nodes"] == 1
     assert "total_saved_memory_bytes" not in data["summary"]
     assert "saved_tensors" not in data["nodes"][0]
+
+
+def test_format_dot_basic():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20]
+    )
+    graph.add_node(node)
+    graph.add_edge(0, 0)
+    
+    result = format_dot(graph, show_memory=False)
+    
+    assert "digraph computation_graph" in result
+    assert "rankdir=LR" in result
+    assert "AddBackward" in result
+    assert "node0" in result
+
+
+def test_format_dot_with_memory():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="ReluBackward",
+        output_shape=[10, 20],
+        saved_memory_bytes=800
+    )
+    graph.add_node(node)
+    
+    result = format_dot(graph, show_memory=True)
+    
+    assert "memory: 800" in result

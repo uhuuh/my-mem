@@ -149,3 +149,21 @@ def format_json(graph, show_memory=True):
         data["nodes"].append(node_data)
     
     return json.dumps(data, indent=2)
+
+
+def format_dot(graph, show_memory=True):
+    lines = ["digraph computation_graph {"]
+    lines.append("  rankdir=LR;")
+    
+    for node in graph.nodes:
+        label = f"{node.op_type}\\nshape: {node.output_shape}"
+        if show_memory and node.saved_memory_bytes > 0:
+            label += f"\\nmemory: {format_bytes(node.saved_memory_bytes)}"
+        
+        lines.append(f'  node{node.node_id} [label="{label}"];')
+    
+    for edge in graph.edges:
+        lines.append(f'  node{edge["from"]} -> node{edge["to"]};')
+    
+    lines.append("}")
+    return "\n".join(lines)
