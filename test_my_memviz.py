@@ -1,6 +1,6 @@
 import pytest
 import torch
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph
 
 
 def test_format_bytes_zero():
@@ -59,3 +59,44 @@ def test_graph_node_with_saved_tensors():
     )
     assert len(node.saved_tensors) == 1
     assert node.saved_tensors[0]["name"] == "result"
+
+
+def test_graph_empty():
+    graph = Graph()
+    assert graph.nodes == []
+    assert graph.edges == []
+    assert graph.total_saved_memory_bytes == 0
+
+
+def test_graph_add_node():
+    graph = Graph()
+    node = GraphNode(node_id=0, op_type="AddBackward", output_shape=[10])
+    graph.add_node(node)
+    assert len(graph.nodes) == 1
+    assert graph.nodes[0].op_type == "AddBackward"
+
+
+def test_graph_add_edge():
+    graph = Graph()
+    graph.add_edge(0, 1)
+    assert len(graph.edges) == 1
+    assert graph.edges[0] == {"from": 0, "to": 1}
+
+
+def test_graph_total_memory():
+    graph = Graph()
+    node1 = GraphNode(
+        node_id=0,
+        op_type="Op1",
+        output_shape=[10],
+        saved_memory_bytes=100
+    )
+    node2 = GraphNode(
+        node_id=1,
+        op_type="Op2",
+        output_shape=[20],
+        saved_memory_bytes=200
+    )
+    graph.add_node(node1)
+    graph.add_node(node2)
+    assert graph.total_saved_memory_bytes == 300

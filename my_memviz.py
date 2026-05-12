@@ -19,3 +19,17 @@ class GraphNode:
     output_shape: List[int]
     saved_tensors: List[Dict[str, Any]] = field(default_factory=list)
     saved_memory_bytes: int = 0
+
+
+class Graph:
+    def __init__(self):
+        self.nodes: List[GraphNode] = []
+        self.edges: List[Dict[str, int]] = []
+        self.total_saved_memory_bytes: int = 0
+
+    def add_node(self, node: GraphNode):
+        self.nodes.append(node)
+        self.total_saved_memory_bytes += node.saved_memory_bytes
+
+    def add_edge(self, from_id: int, to_id: int):
+        self.edges.append({"from": from_id, "to": to_id})
