@@ -1,6 +1,6 @@
 import pytest
 import torch
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph
 
 
 def test_format_bytes_zero():
@@ -119,3 +119,41 @@ def test_extract_saved_tensors_relu():
     saved = extract_saved_tensors(y.grad_fn)
     assert len(saved) == 1
     assert saved[0]["name"] == "result"
+
+
+def test_traverse_graph_simple():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    graph = Graph()
+    traverse_graph(y, x, graph)
+    
+    assert len(graph.nodes) >= 1
+    assert any("AddmmBackward" in node.op_type for node in graph.nodes)
+
+
+def test_traverse_graph_multi_layer():
+    x = torch.randn(10, 20, requires_grad=True)
+    model = torch.nn.Sequential(
+        torch.nn.Linear(20, 30),
+        torch.nn.ReLU(),
+        torch.nn.Linear(30, 10)
+    )
+    y = model(x)
+    
+    graph = Graph()
+    traverse_graph(y, x, graph)
+    
+    assert len(graph.nodes) >= 3
+    assert len(graph.edges) >= 2
+
+
+def test_traverse_graph_no_path():
+    x = torch.randn(10, 20, requires_grad=True)
+    y = torch.randn(10, 20, requires_grad=True)
+    
+    graph = Graph()
+    traverse_graph(y, x, graph)
+    
+    assert len(graph.nodes) == 0
