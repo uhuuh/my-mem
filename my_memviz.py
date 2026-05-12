@@ -167,3 +167,21 @@ def format_dot(graph, show_memory=True):
     
     lines.append("}")
     return "\n".join(lines)
+
+
+def format_image(graph, output_file, format="png", show_memory=True):
+    try:
+        import graphviz
+    except ImportError:
+        warnings.warn("graphviz package not installed. Install with: pip install graphviz")
+        return None
+    
+    dot_content = format_dot(graph, show_memory)
+    
+    try:
+        dot = graphviz.Source(dot_content)
+        dot.render(output_file.rsplit('.', 1)[0], format=format, cleanup=True)
+        return output_file
+    except Exception as e:
+        warnings.warn(f"Failed to render image: {e}")
+        return None

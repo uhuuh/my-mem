@@ -1,7 +1,8 @@
 import pytest
 import torch
 import json
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot
+import os
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image
 
 
 def test_format_bytes_zero():
@@ -230,3 +231,43 @@ def test_format_dot_with_memory():
     result = format_dot(graph, show_memory=True)
     
     assert "memory: 800" in result
+
+
+def test_format_image_png():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20]
+    )
+    graph.add_node(node)
+    
+    result = format_image(graph, "test_output.png", format="png")
+    
+    try:
+        import graphviz
+        assert result == "test_output.png"
+        assert os.path.exists("test_output.png")
+        os.remove("test_output.png")
+    except ImportError:
+        assert result is None
+
+
+def test_format_image_svg():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20]
+    )
+    graph.add_node(node)
+    
+    result = format_image(graph, "test_output.svg", format="svg")
+    
+    try:
+        import graphviz
+        assert result == "test_output.svg"
+        assert os.path.exists("test_output.svg")
+        os.remove("test_output.svg")
+    except ImportError:
+        assert result is None
