@@ -278,7 +278,8 @@ def test_dump_graph_json():
     linear = torch.nn.Linear(20, 30)
     y = linear(x)
     
-    result = dump_graph(y, x, format="json")
+    graph = dump_graph(y, x, format="json")
+    result = graph.render("json")
     data = json.loads(result)
     
     assert data["summary"]["num_nodes"] >= 1
@@ -290,7 +291,8 @@ def test_dump_graph_dot():
     linear = torch.nn.Linear(20, 30)
     y = linear(x)
     
-    result = dump_graph(y, x, format="dot")
+    graph = dump_graph(y, x, format="dot")
+    result = graph.render("dot")
     
     assert "digraph computation_graph" in result
     assert "rankdir=LR" in result
@@ -361,8 +363,8 @@ def test_integration_multi_layer_network():
     )
     y = model(x)
     
-    result = dump_graph(y, x, format="json", show_memory=True)
-    data = json.loads(result)
+    graph = dump_graph(y, x, format="json", show_memory=True)
+    data = json.loads(graph.render("json"))
     
     assert data["summary"]["num_nodes"] >= 5
     assert data["summary"]["total_saved_memory_bytes"] > 0
@@ -375,8 +377,8 @@ def test_integration_residual_connection():
     y = linear(x)
     y = y + x
     
-    result = dump_graph(y, x, format="json", show_memory=True)
-    data = json.loads(result)
+    graph = dump_graph(y, x, format="json", show_memory=True)
+    data = json.loads(graph.render("json"))
     
     assert data["summary"]["num_nodes"] >= 1
     assert any("AddBackward" in node["op_type"] for node in data["nodes"])
@@ -387,8 +389,8 @@ def test_integration_memory_tracking():
     linear = torch.nn.Linear(100, 100)
     y = linear(x)
     
-    result = dump_graph(y, x, format="json", show_memory=True)
-    data = json.loads(result)
+    graph = dump_graph(y, x, format="json", show_memory=True)
+    data = json.loads(graph.render("json"))
     
     assert data["summary"]["total_saved_memory_bytes"] > 0
     

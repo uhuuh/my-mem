@@ -18,8 +18,6 @@ def extract_saved_tensors(grad_fn):
     saved_tensors = []
     
     for attr_name in dir(grad_fn):
-        if attr_name.startswith('_saved_') and not attr_name.startswith('_saved_') and attr_name != '_saved':
-            continue
         if attr_name.startswith('_saved_') and not attr_name.startswith('_raw_saved_'):
             if attr_name.startswith('_saved_mat') or attr_name == '_saved_result' or attr_name == '_saved_bias' or attr_name == '_saved_weight':
                 try:
@@ -61,6 +59,18 @@ class Graph:
     def add_edge(self, from_id: int, to_id: int):
         self.edges.append({"from": from_id, "to": to_id})
 
+    def render(self, format: str, show_memory: bool = True, output_file: str = None):
+        if format == "json":
+            return format_json(self, show_memory)
+        elif format == "dot":
+            return format_dot(self, show_memory)
+        elif format in ["png", "svg"]:
+            if output_file is None:
+                warnings.warn(f"output_file required for {format} format")
+                return None
+            return format_image(self, output_file, format=format, show_memory=show_memory)
+        return None
+
 
 def traverse_graph(output_tensor, input_tensor, graph, visited=None):
     if visited is None:
@@ -83,7 +93,7 @@ def traverse_graph(output_tensor, input_tensor, graph, visited=None):
     
     def _traverse(grad_fn, visited):
         if grad_fn is None or id(grad_fn) in visited:
-            return
+            return None
         
         visited.add(id(grad_fn))
         
@@ -109,11 +119,13 @@ def traverse_graph(output_tensor, input_tensor, graph, visited=None):
         )
         graph.add_node(node)
         
-        for i, (next_fn, _) in enumerate(grad_fn.next_functions):
+        for next_fn, _ in grad_fn.next_functions:
             if next_fn is not None and not _is_target_node(next_fn):
-                _traverse(next_fn, visited)
-                if len(graph.nodes) > node_id + 1:
-                    graph.add_edge(node_id, node_id + 1)
+                child_id = _traverse(next_fn, visited)
+                if child_id is not None:
+                    graph.add_edge(node_id, child_id)
+        
+        return node_id
     
     _traverse(output_tensor.grad_fn, visited)
     
@@ -207,15 +219,8 @@ def dump_graph(output_tensor, input_tensor, format="json", show_memory=True, out
     
     formats = [format] if isinstance(format, str) else format
     
-    results = {}
     for fmt in formats:
-        if fmt == "json":
-            result = format_json(graph, show_memory)
-            results["json"] = result
-        elif fmt == "dot":
-            result = format_dot(graph, show_memory)
-            results["dot"] = result
-        elif fmt in ["png", "svg"]:
+        if fmt in ["png", "svg"]:
             if output_file is None:
                 warnings.warn(f"output_file required for {fmt} format")
                 continue
@@ -226,29 +231,16 @@ def dump_graph(output_tensor, input_tensor, format="json", show_memory=True, out
             else:
                 out_path = output_file + ext
             
-            format_image(graph, out_path, format=fmt, show_memory=show_memory)
-            results[fmt] = out_path
-    
-    if output_file is not None:
-        for fmt, result in results.items():
-            if fmt == "json":
-                ext = ".json"
+            graph.render(fmt, show_memory=show_memory, output_file=out_path)
+        elif output_file is not None:
+            result = graph.render(fmt, show_memory=show_memory)
+            if result is not None:
+                ext = f".{fmt}"
                 if not output_file.endswith(ext):
                     path = output_file + ext
                 else:
                     path = output_file
                 with open(path, 'w') as f:
                     f.write(result)
-            elif fmt == "dot":
-                ext = ".dot"
-                if not output_file.endswith(ext):
-                    path = output_file + ext
-                else:
-                    path = output_file
-                with open(path, 'w') as f:
-                    f.write(result)
-    
-    if isinstance(format, str) and format in results:
-        return results[format]
     
     return graph
