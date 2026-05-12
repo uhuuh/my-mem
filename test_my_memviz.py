@@ -1,6 +1,6 @@
 import pytest
 import torch
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors
 
 
 def test_format_bytes_zero():
@@ -100,3 +100,22 @@ def test_graph_total_memory():
     graph.add_node(node1)
     graph.add_node(node2)
     assert graph.total_saved_memory_bytes == 300
+
+
+def test_extract_saved_tensors_linear():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    saved = extract_saved_tensors(y.grad_fn)
+    assert len(saved) >= 1
+    assert any(st["name"] in ["mat1", "weight", "bias"] for st in saved)
+
+
+def test_extract_saved_tensors_relu():
+    x = torch.randn(5, 10, requires_grad=True)
+    y = torch.relu(x)
+    
+    saved = extract_saved_tensors(y.grad_fn)
+    assert len(saved) == 1
+    assert saved[0]["name"] == "result"
