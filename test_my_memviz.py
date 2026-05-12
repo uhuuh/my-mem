@@ -2,7 +2,7 @@ import pytest
 import torch
 import json
 import os
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph
 
 
 def test_format_bytes_zero():
@@ -271,3 +271,53 @@ def test_format_image_svg():
         os.remove("test_output.svg")
     except ImportError:
         assert result is None
+
+
+def test_dump_graph_json():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    result = dump_graph(y, x, format="json")
+    data = json.loads(result)
+    
+    assert data["summary"]["num_nodes"] >= 1
+    assert "total_saved_memory_bytes" in data["summary"]
+
+
+def test_dump_graph_dot():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    result = dump_graph(y, x, format="dot")
+    
+    assert "digraph computation_graph" in result
+    assert "rankdir=LR" in result
+
+
+def test_dump_graph_to_file():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    dump_graph(y, x, format="json", output_file="test_graph")
+    
+    assert os.path.exists("test_graph.json")
+    with open("test_graph.json", "r") as f:
+        data = json.loads(f.read())
+    assert data["summary"]["num_nodes"] >= 1
+    os.remove("test_graph.json")
+
+
+def test_dump_graph_multiple_formats():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    graph = dump_graph(y, x, format=["json", "dot"], output_file="test_multi")
+    
+    assert os.path.exists("test_multi.json")
+    assert os.path.exists("test_multi.dot")
+    os.remove("test_multi.json")
+    os.remove("test_multi.dot")

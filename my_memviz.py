@@ -185,3 +185,70 @@ def format_image(graph, output_file, format="png", show_memory=True):
     except Exception as e:
         warnings.warn(f"Failed to render image: {e}")
         return None
+
+
+def dump_graph(output_tensor, input_tensor, format="json", show_memory=True, output_file=None):
+    if not hasattr(output_tensor, 'grad_fn'):
+        warnings.warn("output_tensor is not a tensor or has no grad_fn")
+        return None
+    
+    if not hasattr(input_tensor, 'requires_grad'):
+        warnings.warn("input_tensor is not a tensor")
+        return None
+    
+    if not input_tensor.requires_grad:
+        warnings.warn("input_tensor does not require grad")
+    
+    graph = Graph()
+    traverse_graph(output_tensor, input_tensor, graph)
+    
+    if len(graph.nodes) > 100:
+        warnings.warn(f"Very large graph detected: {len(graph.nodes)} nodes")
+    
+    formats = [format] if isinstance(format, str) else format
+    
+    results = {}
+    for fmt in formats:
+        if fmt == "json":
+            result = format_json(graph, show_memory)
+            results["json"] = result
+        elif fmt == "dot":
+            result = format_dot(graph, show_memory)
+            results["dot"] = result
+        elif fmt in ["png", "svg"]:
+            if output_file is None:
+                warnings.warn(f"output_file required for {fmt} format")
+                continue
+            
+            ext = f".{fmt}"
+            if output_file.endswith(f".{fmt}"):
+                out_path = output_file
+            else:
+                out_path = output_file + ext
+            
+            format_image(graph, out_path, format=fmt, show_memory=show_memory)
+            results[fmt] = out_path
+    
+    if output_file is not None:
+        for fmt, result in results.items():
+            if fmt == "json":
+                ext = ".json"
+                if not output_file.endswith(ext):
+                    path = output_file + ext
+                else:
+                    path = output_file
+                with open(path, 'w') as f:
+                    f.write(result)
+            elif fmt == "dot":
+                ext = ".dot"
+                if not output_file.endswith(ext):
+                    path = output_file + ext
+                else:
+                    path = output_file
+                with open(path, 'w') as f:
+                    f.write(result)
+    
+    if isinstance(format, str) and format in results:
+        return results[format]
+    
+    return graph
