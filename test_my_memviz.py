@@ -348,3 +348,53 @@ def test_dump_graph_no_requires_grad():
     
     with pytest.warns(UserWarning):
         result = dump_graph(y, x, format="json")
+
+
+def test_integration_multi_layer_network():
+    x = torch.randn(32, 784, requires_grad=True)
+    model = torch.nn.Sequential(
+        torch.nn.Linear(784, 256),
+        torch.nn.ReLU(),
+        torch.nn.Linear(256, 128),
+        torch.nn.ReLU(),
+        torch.nn.Linear(128, 10)
+    )
+    y = model(x)
+    
+    result = dump_graph(y, x, format="json", show_memory=True)
+    data = json.loads(result)
+    
+    assert data["summary"]["num_nodes"] >= 5
+    assert data["summary"]["total_saved_memory_bytes"] > 0
+
+
+def test_integration_residual_connection():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 20)
+    
+    y = linear(x)
+    y = y + x
+    
+    result = dump_graph(y, x, format="json", show_memory=True)
+    data = json.loads(result)
+    
+    assert data["summary"]["num_nodes"] >= 1
+    assert any("AddBackward" in node["op_type"] for node in data["nodes"])
+
+
+def test_integration_memory_tracking():
+    x = torch.randn(100, 100, requires_grad=True)
+    linear = torch.nn.Linear(100, 100)
+    y = linear(x)
+    
+    result = dump_graph(y, x, format="json", show_memory=True)
+    data = json.loads(result)
+    
+    assert data["summary"]["total_saved_memory_bytes"] > 0
+    
+    for node in data["nodes"]:
+        if len(node.get("saved_tensors", [])) > 0:
+            for st in node["saved_tensors"]:
+                assert "size_bytes" in st
+                assert "size_formatted" in st
+                assert st["size_bytes"] > 0
