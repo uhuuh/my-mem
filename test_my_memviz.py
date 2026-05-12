@@ -1,6 +1,7 @@
 import pytest
 import torch
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph
+import json
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json
 
 
 def test_format_bytes_zero():
@@ -157,3 +158,42 @@ def test_traverse_graph_no_path():
     traverse_graph(y, x, graph)
     
     assert len(graph.nodes) == 0
+
+
+def test_format_json_basic():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20],
+        saved_tensors=[{"name": "result", "shape": [10, 20], "dtype": "float32", "size_bytes": 800, "size_formatted": "800"}],
+        saved_memory_bytes=800
+    )
+    graph.add_node(node)
+    graph.add_edge(0, 0)
+    
+    result = format_json(graph)
+    data = json.loads(result)
+    
+    assert data["summary"]["num_nodes"] == 1
+    assert data["summary"]["total_saved_memory_bytes"] == 800
+    assert len(data["nodes"]) == 1
+    assert data["nodes"][0]["op_type"] == "AddBackward"
+    assert data["edges"][0] == {"from": 0, "to": 0}
+
+
+def test_format_json_no_memory():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20]
+    )
+    graph.add_node(node)
+    
+    result = format_json(graph, show_memory=False)
+    data = json.loads(result)
+    
+    assert data["summary"]["num_nodes"] == 1
+    assert "total_saved_memory_bytes" not in data["summary"]
+    assert "saved_tensors" not in data["nodes"][0]

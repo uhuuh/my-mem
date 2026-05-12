@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
 import warnings
+import json
 
 
 def format_bytes(num_bytes):
@@ -118,3 +119,33 @@ def traverse_graph(output_tensor, input_tensor, graph, visited=None):
     
     if len(graph.nodes) == 0:
         warnings.warn("No path found between tensors")
+
+
+def format_json(graph, show_memory=True):
+    data = {
+        "summary": {
+            "num_nodes": len(graph.nodes)
+        },
+        "nodes": [],
+        "edges": graph.edges
+    }
+    
+    if show_memory:
+        data["summary"]["total_saved_memory_bytes"] = graph.total_saved_memory_bytes
+        data["summary"]["total_saved_memory_formatted"] = format_bytes(graph.total_saved_memory_bytes)
+    
+    for node in graph.nodes:
+        node_data = {
+            "id": node.node_id,
+            "op_type": node.op_type,
+            "output_shape": node.output_shape
+        }
+        
+        if show_memory:
+            node_data["saved_tensors"] = node.saved_tensors
+            node_data["saved_memory_bytes"] = node.saved_memory_bytes
+            node_data["saved_memory_formatted"] = format_bytes(node.saved_memory_bytes)
+        
+        data["nodes"].append(node_data)
+    
+    return json.dumps(data, indent=2)

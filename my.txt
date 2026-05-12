@@ -1,0 +1,4 @@
+提供一个类似torchviz的工具，可以dump两个tensor之间的计算图，支持文本格式、dot文件、png等图片
+额外的选项，节点信息中包含因为反向而保存tensor占用的存储块的大小
+
+使用superpower skill实现
