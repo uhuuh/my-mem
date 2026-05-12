@@ -321,3 +321,30 @@ def test_dump_graph_multiple_formats():
     assert os.path.exists("test_multi.dot")
     os.remove("test_multi.json")
     os.remove("test_multi.dot")
+
+
+def test_dump_graph_disconnected_tensors():
+    x = torch.randn(10, 20, requires_grad=True)
+    y = torch.randn(10, 20, requires_grad=True)
+    
+    with pytest.warns(UserWarning):
+        result = dump_graph(y, x, format="json")
+    
+    assert result is not None
+
+
+def test_dump_graph_non_tensor_input():
+    y = torch.randn(10, 20, requires_grad=True)
+    
+    with pytest.warns(UserWarning):
+        result = dump_graph(y, "not a tensor", format="json")
+    
+    assert result is None
+
+
+def test_dump_graph_no_requires_grad():
+    x = torch.randn(10, 20, requires_grad=False)
+    y = torch.randn(10, 20, requires_grad=True)
+    
+    with pytest.warns(UserWarning):
+        result = dump_graph(y, x, format="json")
