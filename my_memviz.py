@@ -44,6 +44,7 @@ class GraphNode:
     output_shape: List[int]
     saved_tensors: List[Dict[str, Any]] = field(default_factory=list)
     saved_memory_bytes: int = 0
+    call_stack: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class Graph:

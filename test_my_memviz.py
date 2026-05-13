@@ -63,6 +63,19 @@ def test_graph_node_with_saved_tensors():
     assert node.saved_tensors[0]["name"] == "result"
 
 
+def test_graph_node_with_call_stack():
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20],
+        call_stack=[
+            {"file": "/path/to/file.py", "line": 42, "function": "forward", "code": "y = linear(x)"}
+        ]
+    )
+    assert node.call_stack[0]["file"] == "/path/to/file.py"
+    assert node.call_stack[0]["line"] == 42
+
+
 def test_graph_empty():
     graph = Graph()
     assert graph.nodes == []
