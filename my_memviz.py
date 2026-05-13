@@ -151,7 +151,8 @@ def format_json(graph, show_memory=True):
         node_data = {
             "id": node.node_id,
             "op_type": node.op_type,
-            "output_shape": node.output_shape
+            "output_shape": node.output_shape,
+            "call_stack": node.call_stack
         }
         
         if show_memory:

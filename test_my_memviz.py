@@ -196,6 +196,26 @@ def test_format_json_basic():
     assert data["edges"][0] == {"from": 0, "to": 0}
 
 
+def test_format_json_with_call_stack():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20],
+        call_stack=[
+            {"file": "/path/model.py", "line": 15, "function": "forward", "code": "y = self.linear(x)"}
+        ]
+    )
+    graph.add_node(node)
+    
+    result = format_json(graph, show_memory=False)
+    data = json.loads(result)
+    
+    assert "call_stack" in data["nodes"][0]
+    assert data["nodes"][0]["call_stack"][0]["file"] == "/path/model.py"
+    assert data["nodes"][0]["call_stack"][0]["line"] == 15
+
+
 def test_format_json_no_memory():
     graph = Graph()
     node = GraphNode(
