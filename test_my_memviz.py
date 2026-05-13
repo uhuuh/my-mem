@@ -2,7 +2,7 @@ import pytest
 import torch
 import json
 import os
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph, _extract_call_stack
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _track_tensor_creation
 
 
 def test_format_bytes_zero():
@@ -464,3 +464,25 @@ def test_integration_memory_tracking():
                 assert "size_bytes" in st
                 assert "size_formatted" in st
                 assert st["size_bytes"] > 0
+
+
+def test_track_tensor_creation():
+    captured = []
+    
+    x = torch.randn(10, 20, requires_grad=True)
+    _track_tensor_creation(x, captured)
+    
+    y = torch.randn(5, 10, requires_grad=False)
+    _track_tensor_creation(y, captured)
+    
+    assert len(captured) == 2
+    
+    assert captured[0]['id'] == id(x)
+    assert captured[0]['requires_grad'] == True
+    assert captured[0]['shape'] == [10, 20]
+    assert 'dtype' in captured[0]
+    assert 'call_stack' in captured[0]
+    
+    assert captured[1]['id'] == id(y)
+    assert captured[1]['requires_grad'] == False
+    assert captured[1]['shape'] == [5, 10]

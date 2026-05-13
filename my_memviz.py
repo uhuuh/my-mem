@@ -57,6 +57,29 @@ def _extract_call_stack(stack_summary):
     return call_stack
 
 
+def _track_tensor_creation(tensor, captured_list):
+    """
+    Track a newly created tensor and its metadata.
+    
+    Args:
+        tensor: The newly created tensor
+        captured_list: List to append tensor info to
+    """
+    stack = traceback.extract_stack()
+    call_stack = _extract_call_stack(stack)
+    
+    tensor_info = {
+        "id": id(tensor),
+        "tensor": tensor,
+        "grad_fn": tensor.grad_fn,
+        "requires_grad": tensor.requires_grad,
+        "shape": list(tensor.shape) if hasattr(tensor, 'shape') else [],
+        "dtype": str(tensor.dtype).replace("torch.", "") if hasattr(tensor, 'dtype') else "",
+        "call_stack": call_stack
+    }
+    captured_list.append(tensor_info)
+
+
 @dataclass
 class GraphNode:
     node_id: int
