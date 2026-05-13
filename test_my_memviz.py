@@ -2,7 +2,7 @@ import pytest
 import torch
 import json
 import os
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph, _extract_call_stack
 
 
 def test_format_bytes_zero():
@@ -401,6 +401,19 @@ def test_dump_graph_no_requires_grad():
     
     with pytest.warns(UserWarning):
         result = dump_graph(y, x, format="json")
+
+
+def test_extract_call_stack():
+    import traceback
+    
+    stack = traceback.extract_stack()
+    result = _extract_call_stack(stack)
+    
+    assert len(result) > 0
+    assert "file" in result[0]
+    assert "line" in result[0]
+    assert "function" in result[0]
+    assert "code" in result[0]
 
 
 def test_integration_multi_layer_network():

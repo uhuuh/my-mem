@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any
 import warnings
 import json
+import traceback
+import os
+from contextlib import contextmanager
 
 
 def format_bytes(num_bytes):
@@ -35,6 +38,23 @@ def extract_saved_tensors(grad_fn):
                     pass
     
     return saved_tensors
+
+
+def _extract_call_stack(stack_summary):
+    """
+    Extract call stack information from traceback.extract_stack() result.
+    
+    Returns list of dicts with file, line, function, code keys.
+    """
+    call_stack = []
+    for frame in stack_summary:
+        call_stack.append({
+            "file": frame.filename,
+            "line": frame.lineno,
+            "function": frame.name,
+            "code": frame.line if frame.line else ""
+        })
+    return call_stack
 
 
 @dataclass
