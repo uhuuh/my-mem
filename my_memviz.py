@@ -5,6 +5,7 @@ import json
 import traceback
 import os
 from contextlib import contextmanager
+import torch
 
 
 def format_bytes(num_bytes):
@@ -357,48 +358,84 @@ def format_image(graph, output_file, format="png", show_memory=True):
         return None
 
 
-def dump_graph(output_tensor, input_tensor, format="json", show_memory=True, output_file=None):
-    if not hasattr(output_tensor, 'grad_fn'):
-        warnings.warn("output_tensor is not a tensor or has no grad_fn")
-        return None
+@contextmanager
+def dump_graph(format=["json", "svg"], show_memory=True, output_file=None):
+    """
+    Context manager to capture computation graph within a with block.
     
-    if not hasattr(input_tensor, 'requires_grad'):
-        warnings.warn("input_tensor is not a tensor")
-        return None
+    Args:
+        format: Output format(s). Default ["json", "svg"]. Accepts string or list.
+        show_memory: Include memory information. Default True.
+        output_file: Output file path (without extension). Default None (auto-generates dump_{pid}).
     
-    if not input_tensor.requires_grad:
-        warnings.warn("input_tensor does not require grad")
+    Usage:
+        with dump_graph():
+            x = torch.randn(10, 20, requires_grad=True)
+            y = model(x)
+        # Saves dump_{pid}.json and dump_{pid}.svg
+    """
+    captured_tensors = []
     
-    graph = Graph()
-    traverse_graph(output_tensor, input_tensor, graph)
+    factory_functions = [
+        'randn', 'rand', 'zeros', 'ones', 'empty', 'full',
+        'arange', 'linspace', 'logspace', 'eye', 'tensor',
+        'from_numpy', 'as_tensor'
+    ]
     
-    if len(graph.nodes) > 100:
-        warnings.warn(f"Very large graph detected: {len(graph.nodes)} nodes")
+    original_factories = {}
     
-    formats = [format] if isinstance(format, str) else format
+    def make_tracked_factory(original_func):
+        def tracked_factory(*args, **kwargs):
+            tensor = original_func(*args, **kwargs)
+            _track_tensor_creation(tensor, captured_tensors)
+            return tensor
+        return tracked_factory
     
-    for fmt in formats:
-        if fmt in ["png", "svg"]:
-            if output_file is None:
-                warnings.warn(f"output_file required for {fmt} format")
-                continue
-            
-            ext = f".{fmt}"
-            if output_file.endswith(f".{fmt}"):
-                out_path = output_file
-            else:
-                out_path = output_file + ext
-            
-            graph.render(fmt, show_memory=show_memory, output_file=out_path)
-        elif output_file is not None:
-            result = graph.render(fmt, show_memory=show_memory)
-            if result is not None:
+    for name in factory_functions:
+        if hasattr(torch, name):
+            original_factories[name] = getattr(torch, name)
+            setattr(torch, name, make_tracked_factory(original_factories[name]))
+    
+    def module_forward_hook(module, input, output):
+        if isinstance(output, torch.Tensor) and output.grad_fn is not None:
+            _track_tensor_creation(output, captured_tensors)
+    
+    hook_handle = torch.nn.modules.module.register_module_forward_hook(module_forward_hook)
+    
+    try:
+        yield None
+    finally:
+        for name, original in original_factories.items():
+            setattr(torch, name, original)
+        hook_handle.remove()
+        
+        end_nodes = _find_end_nodes(captured_tensors)
+        
+        if not end_nodes:
+            warnings.warn("No computation graph captured in with block")
+            graph = Graph()
+        else:
+            captured_ids = {t['id'] for t in captured_tensors}
+            graph = _build_subgraph(end_nodes, captured_ids)
+        
+        if output_file is None:
+            import sys
+            pid = os.getpid()
+            base_name = f"dump_{pid}"
+        else:
+            base_name = output_file
+        
+        formats = [format] if isinstance(format, str) else format
+        
+        for fmt in formats:
+            if fmt in ["png", "svg"]:
                 ext = f".{fmt}"
-                if not output_file.endswith(ext):
-                    path = output_file + ext
-                else:
-                    path = output_file
-                with open(path, 'w') as f:
-                    f.write(result)
-    
-    return graph
+                out_path = base_name if base_name.endswith(ext) else base_name + ext
+                graph.render(fmt, show_memory=show_memory, output_file=out_path)
+            else:
+                result = graph.render(fmt, show_memory=show_memory)
+                if result is not None:
+                    ext = f".{fmt}"
+                    out_path = base_name if base_name.endswith(ext) else base_name + ext
+                    with open(out_path, 'w') as f:
+                        f.write(result)
