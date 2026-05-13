@@ -174,6 +174,10 @@ def format_dot(graph, show_memory=True):
         if show_memory and node.saved_memory_bytes > 0:
             label += f"\\nmemory: {format_bytes(node.saved_memory_bytes)}"
         
+        if node.call_stack:
+            first_call = node.call_stack[0]
+            label += f"\\n{first_call['file']}:{first_call['line']} in {first_call['function']}"
+        
         lines.append(f'  node{node.node_id} [label="{label}"];')
     
     for edge in graph.edges:

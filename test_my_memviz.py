@@ -266,6 +266,24 @@ def test_format_dot_with_memory():
     assert "memory: 800" in result
 
 
+def test_format_dot_with_call_stack():
+    graph = Graph()
+    node = GraphNode(
+        node_id=0,
+        op_type="AddBackward",
+        output_shape=[10, 20],
+        call_stack=[
+            {"file": "model.py", "line": 15, "function": "forward", "code": "y = self.linear(x)"}
+        ]
+    )
+    graph.add_node(node)
+    
+    result = format_dot(graph, show_memory=False)
+    
+    assert "model.py:15" in result
+    assert "forward" in result
+
+
 def test_format_image_png():
     graph = Graph()
     node = GraphNode(
