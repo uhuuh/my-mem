@@ -6,6 +6,7 @@ import traceback
 import os
 from contextlib import contextmanager
 import torch
+from torch.autograd.graph import TorchDispatchMode
 
 
 def format_bytes(num_bytes):
@@ -42,11 +43,6 @@ def extract_saved_tensors(grad_fn):
 
 
 def _extract_call_stack(stack_summary):
-    """
-    Extract call stack information from traceback.extract_stack() result.
-    
-    Returns list of dicts with file, line, function, code keys.
-    """
     call_stack = []
     for frame in stack_summary:
         call_stack.append({
@@ -58,18 +54,11 @@ def _extract_call_stack(stack_summary):
     return call_stack
 
 
-def _track_tensor_creation(tensor, captured_list):
-    """
-    Track a newly created tensor and its metadata.
-    
-    Args:
-        tensor: The newly created tensor
-        captured_list: List to append tensor info to
-    """
+def _capture_tensor_info(tensor):
     stack = traceback.extract_stack()
     call_stack = _extract_call_stack(stack)
     
-    tensor_info = {
+    return {
         "id": id(tensor),
         "tensor": tensor,
         "grad_fn": tensor.grad_fn,
@@ -78,29 +67,11 @@ def _track_tensor_creation(tensor, captured_list):
         "dtype": str(tensor.dtype).replace("torch.", "") if hasattr(tensor, 'dtype') else "",
         "call_stack": call_stack
     }
-    captured_list.append(tensor_info)
 
 
 def _find_end_nodes(captured_tensors):
-    """
-    Find tensors that are not dependencies of other captured tensors.
-    
-    An end node is a tensor whose grad_fn is not referenced by any other
-    captured tensor's grad_fn.next_functions.
-    
-    Args:
-        captured_tensors: List of captured tensor info dicts
-        
-    Returns:
-        List of captured tensor info dicts that are end nodes
-    """
     if not captured_tensors:
         return []
-    
-    all_grad_fn_ids = set()
-    for t_info in captured_tensors:
-        if t_info['grad_fn'] is not None:
-            all_grad_fn_ids.add(id(t_info['grad_fn']))
     
     referenced_grad_fn_ids = set()
     for t_info in captured_tensors:
@@ -124,18 +95,6 @@ def _find_end_nodes(captured_tensors):
 
 
 def _build_subgraph(end_nodes, captured_tensor_ids):
-    """
-    Build a Graph from end nodes by traversing grad_fn.next_functions.
-    
-    Only includes nodes that were captured during the with block.
-    
-    Args:
-        end_nodes: List of end node tensor info dicts
-        captured_tensor_ids: Set of tensor IDs captured during with block
-        
-    Returns:
-        Graph object with nodes and edges
-    """
     graph = Graph()
     visited_grad_fns = {}
     grad_fn_to_tensor_info = {}
@@ -190,6 +149,40 @@ def _build_subgraph(end_nodes, captured_tensor_ids):
     return graph
 
 
+class _CaptureMode(TorchDispatchMode):
+    def __init__(self):
+        self.raw_tensors = []
+    
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        result = func(*args, **kwargs)
+        
+        if isinstance(result, torch.Tensor):
+            self.raw_tensors.append(result)
+        elif isinstance(result, (tuple, list)):
+            for r in result:
+                if isinstance(r, torch.Tensor):
+                    self.raw_tensors.append(r)
+        
+        return result
+    
+    def get_tensors_with_grad_fn(self):
+        tensors_info = []
+        seen_ids = set()
+        
+        for tensor in self.raw_tensors:
+            tid = id(tensor)
+            if tid in seen_ids:
+                continue
+            seen_ids.add(tid)
+            
+            if hasattr(tensor, 'grad_fn') and tensor.grad_fn is not None:
+                tensors_info.append(_capture_tensor_info(tensor))
+        
+        return tensors_info
+
+
 @dataclass
 class GraphNode:
     node_id: int
@@ -224,9 +217,6 @@ class Graph:
                 return None
             return format_image(self, output_file, format=format, show_memory=show_memory)
         return None
-
-
-
 
 
 def format_json(graph, show_memory=True):
@@ -316,68 +306,39 @@ def dump_graph(format=["json", "svg"], show_memory=True, output_file=None):
             y = model(x)
         # Saves dump_{pid}.json and dump_{pid}.svg
     """
-    captured_tensors = []
+    mode = _CaptureMode()
     
-    factory_functions = [
-        'randn', 'rand', 'zeros', 'ones', 'empty', 'full',
-        'arange', 'linspace', 'logspace', 'eye', 'tensor',
-        'from_numpy', 'as_tensor'
-    ]
-    
-    original_factories = {}
-    
-    def make_tracked_factory(original_func):
-        def tracked_factory(*args, **kwargs):
-            tensor = original_func(*args, **kwargs)
-            _track_tensor_creation(tensor, captured_tensors)
-            return tensor
-        return tracked_factory
-    
-    for name in factory_functions:
-        if hasattr(torch, name):
-            original_factories[name] = getattr(torch, name)
-            setattr(torch, name, make_tracked_factory(original_factories[name]))
-    
-    def module_forward_hook(module, input, output):
-        if isinstance(output, torch.Tensor) and output.grad_fn is not None:
-            _track_tensor_creation(output, captured_tensors)
-    
-    hook_handle = torch.nn.modules.module.register_module_forward_hook(module_forward_hook)
-    
-    try:
+    with mode:
         yield None
-    finally:
-        for name, original in original_factories.items():
-            setattr(torch, name, original)
-        hook_handle.remove()
-        
-        end_nodes = _find_end_nodes(captured_tensors)
-        
-        if not end_nodes:
-            warnings.warn("No computation graph captured in with block")
-            graph = Graph()
+    
+    captured_tensors = mode.get_tensors_with_grad_fn()
+    
+    end_nodes = _find_end_nodes(captured_tensors)
+    
+    if not end_nodes:
+        warnings.warn("No computation graph captured in with block")
+        graph = Graph()
+    else:
+        captured_ids = {t['id'] for t in captured_tensors}
+        graph = _build_subgraph(end_nodes, captured_ids)
+    
+    if output_file is None:
+        pid = os.getpid()
+        base_name = f"dump_{pid}"
+    else:
+        base_name = output_file
+    
+    formats = [format] if isinstance(format, str) else format
+    
+    for fmt in formats:
+        if fmt in ["png", "svg"]:
+            ext = f".{fmt}"
+            out_path = base_name if base_name.endswith(ext) else base_name + ext
+            graph.render(fmt, show_memory=show_memory, output_file=out_path)
         else:
-            captured_ids = {t['id'] for t in captured_tensors}
-            graph = _build_subgraph(end_nodes, captured_ids)
-        
-        if output_file is None:
-            import sys
-            pid = os.getpid()
-            base_name = f"dump_{pid}"
-        else:
-            base_name = output_file
-        
-        formats = [format] if isinstance(format, str) else format
-        
-        for fmt in formats:
-            if fmt in ["png", "svg"]:
+            result = graph.render(fmt, show_memory=show_memory)
+            if result is not None:
                 ext = f".{fmt}"
                 out_path = base_name if base_name.endswith(ext) else base_name + ext
-                graph.render(fmt, show_memory=show_memory, output_file=out_path)
-            else:
-                result = graph.render(fmt, show_memory=show_memory)
-                if result is not None:
-                    ext = f".{fmt}"
-                    out_path = base_name if base_name.endswith(ext) else base_name + ext
-                    with open(out_path, 'w') as f:
-                        f.write(result)
+                with open(out_path, 'w') as f:
+                    f.write(result)

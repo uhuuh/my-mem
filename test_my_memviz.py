@@ -2,7 +2,7 @@ import pytest
 import torch
 import json
 import os
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _track_tensor_creation, _find_end_nodes, _build_subgraph
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _capture_tensor_info, _find_end_nodes, _build_subgraph
 
 
 def test_format_bytes_zero():
@@ -454,26 +454,22 @@ def test_integration_memory_tracking():
     os.remove("test_memory.json")
 
 
-def test_track_tensor_creation():
-    captured = []
-    
+def test_capture_tensor_info():
     x = torch.randn(10, 20, requires_grad=True)
-    _track_tensor_creation(x, captured)
+    info = _capture_tensor_info(x)
+    
+    assert info['id'] == id(x)
+    assert info['requires_grad'] == True
+    assert info['shape'] == [10, 20]
+    assert 'dtype' in info
+    assert 'call_stack' in info
     
     y = torch.randn(5, 10, requires_grad=False)
-    _track_tensor_creation(y, captured)
+    info_y = _capture_tensor_info(y)
     
-    assert len(captured) == 2
-    
-    assert captured[0]['id'] == id(x)
-    assert captured[0]['requires_grad'] == True
-    assert captured[0]['shape'] == [10, 20]
-    assert 'dtype' in captured[0]
-    assert 'call_stack' in captured[0]
-    
-    assert captured[1]['id'] == id(y)
-    assert captured[1]['requires_grad'] == False
-    assert captured[1]['shape'] == [5, 10]
+    assert info_y['id'] == id(y)
+    assert info_y['requires_grad'] == False
+    assert info_y['shape'] == [5, 10]
 
 
 def test_find_end_nodes():
@@ -482,9 +478,7 @@ def test_find_end_nodes():
     y = linear(x)
     z = y * 2
     
-    captured = []
-    _track_tensor_creation(y, captured)
-    _track_tensor_creation(z, captured)
+    captured = [_capture_tensor_info(y), _capture_tensor_info(z)]
     
     end_nodes = _find_end_nodes(captured)
     
@@ -497,8 +491,7 @@ def test_build_subgraph():
     linear = torch.nn.Linear(20, 30)
     y = linear(x)
     
-    captured = []
-    _track_tensor_creation(y, captured)
+    captured = [_capture_tensor_info(y)]
     
     captured_ids = {t['id'] for t in captured}
     end_nodes = _find_end_nodes(captured)
@@ -549,3 +542,43 @@ def test_integration_context_manager_multi_layer():
             assert "line" in node["call_stack"][0]
     
     os.remove("test_integration.json")
+
+
+def test_dump_graph_tensor_operations():
+    with dump_graph(format="json", output_file="test_tensor_ops"):
+        x = torch.randn(10, 20, requires_grad=True)
+        y = x + 1
+        z = y * 2
+        w = z - 0.5
+    
+    assert os.path.exists("test_tensor_ops.json")
+    with open("test_tensor_ops.json", "r") as f:
+        data = json.loads(f.read())
+    
+    assert data["summary"]["num_nodes"] >= 3
+    op_types = [n["op_type"] for n in data["nodes"]]
+    assert "AddBackward0" in op_types
+    assert "MulBackward0" in op_types
+    assert "SubBackward0" in op_types
+    
+    os.remove("test_tensor_ops.json")
+
+
+def test_dump_graph_torch_functions():
+    with dump_graph(format="json", output_file="test_torch_funcs"):
+        x = torch.randn(10, 20, requires_grad=True)
+        y = torch.relu(x)
+        z = torch.sigmoid(y)
+        w = torch.tanh(z)
+    
+    assert os.path.exists("test_torch_funcs.json")
+    with open("test_torch_funcs.json", "r") as f:
+        data = json.loads(f.read())
+    
+    assert data["summary"]["num_nodes"] >= 3
+    op_types = [n["op_type"] for n in data["nodes"]]
+    assert "ReluBackward0" in op_types
+    assert "SigmoidBackward0" in op_types
+    assert "TanhBackward0" in op_types
+    
+    os.remove("test_torch_funcs.json")
