@@ -324,6 +324,24 @@ def test_format_image_svg():
         assert result is None
 
 
+def test_dump_graph_default_file_naming():
+    pid = os.getpid()
+    
+    with dump_graph(format="json"):
+        x = torch.randn(10, 20, requires_grad=True)
+        linear = torch.nn.Linear(20, 30)
+        y = linear(x)
+    
+    expected_file = f"dump_{pid}.json"
+    assert os.path.exists(expected_file)
+    
+    with open(expected_file, "r") as f:
+        data = json.loads(f.read())
+    assert data["summary"]["num_nodes"] >= 1
+    
+    os.remove(expected_file)
+
+
 def test_dump_graph_json():
     with dump_graph(format="json", output_file="test_json_dump"):
         x = torch.randn(10, 20, requires_grad=True)
@@ -538,3 +556,31 @@ def test_dump_graph_context_manager_basic():
     assert data["summary"]["num_nodes"] >= 1
     assert "call_stack" in data["nodes"][0]
     os.remove("test_ctx.json")
+
+
+def test_integration_context_manager_multi_layer():
+    with dump_graph(format="json", output_file="test_integration"):
+        x = torch.randn(32, 784, requires_grad=True)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(784, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 10)
+        )
+        y = model(x)
+    
+    assert os.path.exists("test_integration.json")
+    with open("test_integration.json", "r") as f:
+        data = json.loads(f.read())
+    
+    assert data["summary"]["num_nodes"] >= 5
+    assert data["summary"]["total_saved_memory_bytes"] > 0
+    
+    for node in data["nodes"]:
+        assert "call_stack" in node
+        if len(node["call_stack"]) > 0:
+            assert "file" in node["call_stack"][0]
+            assert "line" in node["call_stack"][0]
+    
+    os.remove("test_integration.json")
