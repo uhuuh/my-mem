@@ -80,6 +80,48 @@ def _track_tensor_creation(tensor, captured_list):
     captured_list.append(tensor_info)
 
 
+def _find_end_nodes(captured_tensors):
+    """
+    Find tensors that are not dependencies of other captured tensors.
+    
+    An end node is a tensor whose grad_fn is not referenced by any other
+    captured tensor's grad_fn.next_functions.
+    
+    Args:
+        captured_tensors: List of captured tensor info dicts
+        
+    Returns:
+        List of captured tensor info dicts that are end nodes
+    """
+    if not captured_tensors:
+        return []
+    
+    all_grad_fn_ids = set()
+    for t_info in captured_tensors:
+        if t_info['grad_fn'] is not None:
+            all_grad_fn_ids.add(id(t_info['grad_fn']))
+    
+    referenced_grad_fn_ids = set()
+    for t_info in captured_tensors:
+        if t_info['grad_fn'] is not None:
+            for next_fn, _ in t_info['grad_fn'].next_functions:
+                if next_fn is not None:
+                    referenced_grad_fn_ids.add(id(next_fn))
+    
+    end_nodes = []
+    for t_info in captured_tensors:
+        if t_info['grad_fn'] is not None:
+            if id(t_info['grad_fn']) not in referenced_grad_fn_ids:
+                end_nodes.append(t_info)
+    
+    if not end_nodes:
+        for t_info in captured_tensors:
+            if t_info['grad_fn'] is not None:
+                end_nodes.append(t_info)
+    
+    return end_nodes
+
+
 @dataclass
 class GraphNode:
     node_id: int
