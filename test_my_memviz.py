@@ -2,7 +2,7 @@ import pytest
 import torch
 import json
 import os
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _track_tensor_creation, _find_end_nodes
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _track_tensor_creation, _find_end_nodes, _build_subgraph
 
 
 def test_format_bytes_zero():
@@ -502,3 +502,20 @@ def test_find_end_nodes():
     
     assert len(end_nodes) >= 1
     assert any(t['tensor'] is z for t in end_nodes)
+
+
+def test_build_subgraph():
+    x = torch.randn(10, 20, requires_grad=True)
+    linear = torch.nn.Linear(20, 30)
+    y = linear(x)
+    
+    captured = []
+    _track_tensor_creation(y, captured)
+    
+    captured_ids = {t['id'] for t in captured}
+    end_nodes = _find_end_nodes(captured)
+    
+    graph = _build_subgraph(end_nodes, captured_ids)
+    
+    assert isinstance(graph, Graph)
+    assert len(graph.nodes) >= 1

@@ -122,6 +122,73 @@ def _find_end_nodes(captured_tensors):
     return end_nodes
 
 
+def _build_subgraph(end_nodes, captured_tensor_ids):
+    """
+    Build a Graph from end nodes by traversing grad_fn.next_functions.
+    
+    Only includes nodes that were captured during the with block.
+    
+    Args:
+        end_nodes: List of end node tensor info dicts
+        captured_tensor_ids: Set of tensor IDs captured during with block
+        
+    Returns:
+        Graph object with nodes and edges
+    """
+    graph = Graph()
+    visited_grad_fns = {}
+    grad_fn_to_tensor_info = {}
+    
+    for t_info in end_nodes:
+        if t_info['grad_fn'] is not None:
+            grad_fn_to_tensor_info[id(t_info['grad_fn'])] = t_info
+    
+    def traverse(grad_fn, parent_id=None):
+        if grad_fn is None or id(grad_fn) in visited_grad_fns:
+            return visited_grad_fns.get(id(grad_fn))
+        
+        node_id = len(graph.nodes)
+        visited_grad_fns[id(grad_fn)] = node_id
+        
+        op_type = type(grad_fn).__name__
+        
+        output_shape = []
+        t_info = grad_fn_to_tensor_info.get(id(grad_fn))
+        if t_info:
+            output_shape = t_info['shape']
+        
+        saved_tensors = extract_saved_tensors(grad_fn)
+        saved_memory = sum(st["size_bytes"] for st in saved_tensors)
+        
+        call_stack = []
+        if t_info:
+            call_stack = t_info['call_stack']
+        
+        node = GraphNode(
+            node_id=node_id,
+            op_type=op_type,
+            output_shape=output_shape,
+            saved_tensors=saved_tensors,
+            saved_memory_bytes=saved_memory,
+            call_stack=call_stack
+        )
+        graph.add_node(node)
+        
+        for next_fn, _ in grad_fn.next_functions:
+            if next_fn is not None:
+                child_id = traverse(next_fn, node_id)
+                if child_id is not None and child_id != node_id:
+                    graph.add_edge(node_id, child_id)
+        
+        return node_id
+    
+    for end_node in end_nodes:
+        if end_node['grad_fn'] is not None:
+            traverse(end_node['grad_fn'])
+    
+    return graph
+
+
 @dataclass
 class GraphNode:
     node_id: int
