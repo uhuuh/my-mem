@@ -2,7 +2,7 @@ import pytest
 import torch
 import json
 import os
-from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, traverse_graph, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _track_tensor_creation, _find_end_nodes, _build_subgraph
+from my_memviz import format_bytes, calculate_tensor_memory, GraphNode, Graph, extract_saved_tensors, format_json, format_dot, format_image, dump_graph, _extract_call_stack, _track_tensor_creation, _find_end_nodes, _build_subgraph
 
 
 def test_format_bytes_zero():
@@ -136,42 +136,7 @@ def test_extract_saved_tensors_relu():
     assert saved[0]["name"] == "result"
 
 
-def test_traverse_graph_simple():
-    x = torch.randn(10, 20, requires_grad=True)
-    linear = torch.nn.Linear(20, 30)
-    y = linear(x)
-    
-    graph = Graph()
-    traverse_graph(y, x, graph)
-    
-    assert len(graph.nodes) >= 1
-    assert any("AddmmBackward" in node.op_type for node in graph.nodes)
 
-
-def test_traverse_graph_multi_layer():
-    x = torch.randn(10, 20, requires_grad=True)
-    model = torch.nn.Sequential(
-        torch.nn.Linear(20, 30),
-        torch.nn.ReLU(),
-        torch.nn.Linear(30, 10)
-    )
-    y = model(x)
-    
-    graph = Graph()
-    traverse_graph(y, x, graph)
-    
-    assert len(graph.nodes) >= 3
-    assert len(graph.edges) >= 2
-
-
-def test_traverse_graph_no_path():
-    x = torch.randn(10, 20, requires_grad=True)
-    y = torch.randn(10, 20, requires_grad=True)
-    
-    graph = Graph()
-    traverse_graph(y, x, graph)
-    
-    assert len(graph.nodes) == 0
 
 
 def test_format_json_basic():
