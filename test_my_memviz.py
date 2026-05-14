@@ -492,11 +492,9 @@ def test_build_subgraph():
     y = linear(x)
     
     captured = [_capture_tensor_info(y)]
-    
-    tensor_id_to_call_stack = {t['id']: t['call_stack'] for t in captured}
     end_nodes = _find_end_nodes(captured)
     
-    graph = _build_subgraph(end_nodes, captured, tensor_id_to_call_stack)
+    graph = _build_subgraph(end_nodes, captured)
     
     assert isinstance(graph, Graph)
     assert len(graph.nodes) >= 1

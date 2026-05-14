@@ -94,7 +94,7 @@ def _find_end_nodes(captured_tensors):
     return end_nodes
 
 
-def _build_subgraph(end_nodes, all_tensors_info, tensor_id_to_call_stack):
+def _build_subgraph(end_nodes, all_tensors_info):
     graph = Graph()
     visited_grad_fns = {}
     grad_fn_to_tensor_info = {}
@@ -120,12 +120,6 @@ def _build_subgraph(end_nodes, all_tensors_info, tensor_id_to_call_stack):
         if t_info:
             output_shape = t_info['shape']
             call_stack = t_info['call_stack']
-        elif op_type == 'AccumulateGrad':
-            # For AccumulateGrad, try to get call_stack from the leaf tensor
-            if hasattr(grad_fn, 'variable'):
-                leaf_tensor = grad_fn.variable
-                leaf_id = id(leaf_tensor)
-                call_stack = tensor_id_to_call_stack.get(leaf_id, [])
         
         saved_tensors = extract_saved_tensors(grad_fn)
         saved_memory = sum(st["size_bytes"] for st in saved_tensors)
@@ -202,7 +196,7 @@ class _CaptureMode(TorchDispatchMode):
                     "call_stack": self.tensor_id_to_call_stack.get(tid, [])
                 })
         
-        return tensors_info, self.tensor_id_to_call_stack
+        return tensors_info
 
 
 @dataclass
@@ -333,7 +327,7 @@ def dump_graph(format=["json", "svg"], show_memory=True, output_file=None):
     with mode:
         yield None
     
-    captured_tensors, tensor_id_to_call_stack = mode.get_tensors_with_grad_fn()
+    captured_tensors = mode.get_tensors_with_grad_fn()
     
     end_nodes = _find_end_nodes(captured_tensors)
     
@@ -341,7 +335,7 @@ def dump_graph(format=["json", "svg"], show_memory=True, output_file=None):
         warnings.warn("No computation graph captured in with block")
         graph = Graph()
     else:
-        graph = _build_subgraph(end_nodes, captured_tensors, tensor_id_to_call_stack)
+        graph = _build_subgraph(end_nodes, captured_tensors)
     
     if output_file is None:
         pid = os.getpid()
