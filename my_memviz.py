@@ -94,12 +94,13 @@ def _find_end_nodes(captured_tensors):
     return end_nodes
 
 
-def _build_subgraph(end_nodes, captured_tensor_ids):
+def _build_subgraph(end_nodes, all_tensors_info, tensor_id_to_call_stack):
     graph = Graph()
     visited_grad_fns = {}
     grad_fn_to_tensor_info = {}
     
-    for t_info in end_nodes:
+    # Populate from ALL captured tensors, not just end nodes
+    for t_info in all_tensors_info:
         if t_info['grad_fn'] is not None:
             grad_fn_to_tensor_info[id(t_info['grad_fn'])] = t_info
     
@@ -113,16 +114,21 @@ def _build_subgraph(end_nodes, captured_tensor_ids):
         op_type = type(grad_fn).__name__
         
         output_shape = []
+        call_stack = []
+        
         t_info = grad_fn_to_tensor_info.get(id(grad_fn))
         if t_info:
             output_shape = t_info['shape']
+            call_stack = t_info['call_stack']
+        elif op_type == 'AccumulateGrad':
+            # For AccumulateGrad, try to get call_stack from the leaf tensor
+            if hasattr(grad_fn, 'variable'):
+                leaf_tensor = grad_fn.variable
+                leaf_id = id(leaf_tensor)
+                call_stack = tensor_id_to_call_stack.get(leaf_id, [])
         
         saved_tensors = extract_saved_tensors(grad_fn)
         saved_memory = sum(st["size_bytes"] for st in saved_tensors)
-        
-        call_stack = []
-        if t_info:
-            call_stack = t_info['call_stack']
         
         node = GraphNode(
             node_id=node_id,
@@ -152,22 +158,30 @@ def _build_subgraph(end_nodes, captured_tensor_ids):
 class _CaptureMode(TorchDispatchMode):
     def __init__(self):
         self.raw_tensors = []
+        self.tensor_id_to_call_stack = {}
     
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
+        
+        call_stack = _extract_call_stack(traceback.extract_stack())
+        
         result = func(*args, **kwargs)
         
+        # Store ALL tensors with their call_stack
         if isinstance(result, torch.Tensor):
             self.raw_tensors.append(result)
+            self.tensor_id_to_call_stack[id(result)] = call_stack
         elif isinstance(result, (tuple, list)):
             for r in result:
                 if isinstance(r, torch.Tensor):
                     self.raw_tensors.append(r)
+                    self.tensor_id_to_call_stack[id(r)] = call_stack
         
         return result
     
     def get_tensors_with_grad_fn(self):
+        # Return tensors with grad_fn (for finding end nodes)
         tensors_info = []
         seen_ids = set()
         
@@ -178,9 +192,17 @@ class _CaptureMode(TorchDispatchMode):
             seen_ids.add(tid)
             
             if hasattr(tensor, 'grad_fn') and tensor.grad_fn is not None:
-                tensors_info.append(_capture_tensor_info(tensor))
+                tensors_info.append({
+                    "id": tid,
+                    "tensor": tensor,
+                    "grad_fn": tensor.grad_fn,
+                    "requires_grad": tensor.requires_grad,
+                    "shape": list(tensor.shape),
+                    "dtype": str(tensor.dtype).replace("torch.", ""),
+                    "call_stack": self.tensor_id_to_call_stack.get(tid, [])
+                })
         
-        return tensors_info
+        return tensors_info, self.tensor_id_to_call_stack
 
 
 @dataclass
@@ -311,7 +333,7 @@ def dump_graph(format=["json", "svg"], show_memory=True, output_file=None):
     with mode:
         yield None
     
-    captured_tensors = mode.get_tensors_with_grad_fn()
+    captured_tensors, tensor_id_to_call_stack = mode.get_tensors_with_grad_fn()
     
     end_nodes = _find_end_nodes(captured_tensors)
     
@@ -319,8 +341,7 @@ def dump_graph(format=["json", "svg"], show_memory=True, output_file=None):
         warnings.warn("No computation graph captured in with block")
         graph = Graph()
     else:
-        captured_ids = {t['id'] for t in captured_tensors}
-        graph = _build_subgraph(end_nodes, captured_ids)
+        graph = _build_subgraph(end_nodes, captured_tensors, tensor_id_to_call_stack)
     
     if output_file is None:
         pid = os.getpid()
